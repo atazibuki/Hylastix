@@ -1,0 +1,81 @@
+---
+- name: Prerequisites                                                               #Installation of basic packages for Docker repo and dowloading (curl,gpg,...)
+  apt:                                                                              #Using apt modul (for Debian/Ubuntu) downoloading "basic packages"
+    name: [apt-transport-https, ca-certificates, curl, gnupg, lsb-release]
+    update_cache: true                                                              #apt-get update
+    state: present                                                                  #be sure that packages are already installed (not necessary latest (state: latest))
+
+- name: Install Docker (official repo)
+  shell: |
+    set -euo pipefail
+    install -d -m 0755 /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+    apt-get -o Acquire::Retries=3 update -y
+    apt-get -o Dpkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    usermod -aG docker {{ ansible_user }}
+  args: { 
+    executable: /bin/bash
+  }
+
+- name: Create app dir                                                              #place for templates and docker-compose.yml
+  file: { path: /opt/keycloak, state: directory, mode: "0755" }                     #permissions 755= owner-ReadWriteExecute(4+2+1); group-ReadExecute(4+1);other-ReadExecute(4+1); rwxr-xr-x
+
+- name: Place realm import                                                          #In docker-compose.yml we will start keycloak with --import-realm and this file will be automatically imported
+  template:                                                                         #Jinja2 template generating JSON for import Keycloak realm + client
+    src: realm-demo.json.j2
+    dest: /opt/keycloak/realm-demo.json
+    mode: "0644"                                                                    #owner: read+execute; group-read; other-read
+
+- name: Place static index                                                          #static side (Nginx); makes static HTML
+  template:
+    src: index.html.j2
+    dest: /opt/keycloak/index.html
+    mode: "0644"                                                                    #owner: read+execute; group-read; other-read
+
+- name: Place docker-compose                                                        #Generating whole stack (Keycloak+Nginx+ e.g. Postgres)
+  template:
+    src: docker-compose.yml.j2
+    dest: /opt/keycloak/docker-compose.yml
+    mode: "0644"                                                                    #owner: read+execute; group-read; other-read
+
+- name: Normalize line endings (CRLF -> LF)
+  shell: sed -i 's/\r$//' /opt/keycloak/docker-compose.yml
+  args: { 
+    executable: /bin/bash 
+  }
+  changed_when: false
+
+- name: Validate compose file syntax
+  shell: docker compose -f /opt/keycloak/docker-compose.yml config
+  args: { executable: /bin/bash }
+
+- name: Up stack                                                                    #Start/recreating containers
+  shell: docker compose -f /opt/keycloak/docker-compose.yml up -d
+
+- name: Wait for Keycloak to be up on 8080
+  ansible.builtin.shell: |
+    for i in {1..60}; do
+      curl -fsI http://localhost:8080/ && exit 0
+      sleep 2
+    done
+    exit 1
+  args: { executable: /bin/bash }
+
+- name: KCADM login (master)
+  ansible.builtin.shell: |
+    docker compose -f /opt/keycloak/docker-compose.yml exec -T keycloak \
+      /opt/keycloak/bin/kcadm.sh config credentials \
+      --server http://localhost:8080 --realm master \
+      --user {{ kc_admin_user }} --password {{ kc_admin_pass }}
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Set master realm sslRequired=NONE
+  ansible.builtin.shell: |
+    docker compose -f /opt/keycloak/docker-compose.yml exec -T keycloak \
+      /opt/keycloak/bin/kcadm.sh update realms/master -s sslRequired=NONE
+  args:
+    executable: /bin/bash

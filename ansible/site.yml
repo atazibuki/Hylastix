@@ -1,0 +1,13 @@
+---
+- hosts: all                                            #entry point; playbook will run on all hosts (in our case 1 VM)
+  become: true                                          #privilege escalation; sudo (root)
+  vars:
+    kc_admin_user: admin                                #admin user for keycloak
+    kc_admin_pass: "Hylastix_Admin!"
+    kc_realm: "demo"
+    kc_client_id: "oauth2-proxy"
+    kc_client_secret: "{{ lookup('env', 'KC_CLIENT_SECRET') | default('ClientSecret_1234', true) }}"           #secrets from env variables (from GitHub, because of security. It's not ok to be in repo; if doesn't exist, use default)
+    cookie_secret: "{{ lookup('env', 'COOKIE_SECRET') | default('dGVzdC1jb29raWUtc2VjcmV0LWFuZC1jaGFuZ2UtaW4tcHJvZA==', true) }}"
+    public_ip: "{{ public_ip | default('127.0.0.1') }}"
+  roles:
+    - keycloak

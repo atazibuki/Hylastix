@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Protected Demo</title>
+</head>
+<body>
+  <h1>Protected page</h1>
+  <p>You are signed in via <strong>Keycloak</strong> (OIDC) through <strong>oauth2-proxy</strong>.</p>
+
+  <ul>
+    <li><a href="/oauth2/sign_out">Sign out</a></li>
+    <li><a href="/oauth2/refresh?rd=/">Refresh session</a></li>
+    <li><a href="http://{{ public_ip }}:8080/" target="_blank" rel="noopener">Keycloak admin (dev)</a></li>
+  </ul>
+</body>
+</html>

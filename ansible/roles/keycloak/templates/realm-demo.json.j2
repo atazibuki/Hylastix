@@ -1,0 +1,24 @@
+{
+  "id": {{ kc_realm | trim | to_json }},
+  "realm": {{ kc_realm | trim | to_json }},
+  "enabled": true,
+  "sslRequired": "NONE",
+  "clients": [
+    {
+      "clientId": {{ kc_client_id | trim | to_json }},
+      "name": "OAuth2 Proxy",
+      "enabled": true,
+      "publicClient": false,
+      "secret": {{ kc_client_secret | trim | to_json }},
+      "redirectUris": ["http://*/oauth2/callback", "http://{{ public_ip }}/oauth2/callback"],
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+name: Configuring resources...
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+
+    env:
+      RG_NAME: keycloak-rg       
+      PREFIX:  keycloak          
+      SSH_USER: azureuser
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible
+        run: pip install ansible
+
+      - name: Write SSH private key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+
+      - name: Get public IP via Azure CLI (no tfstate needed)
+        id: ip
+        shell: bash
+        run: |
+          set -e
+          PIP_NAME="${PREFIX}-pip"
+          ip=$(az network public-ip show -g "$RG_NAME" -n "$PIP_NAME" --query ipAddress -o tsv || true)
+          if [ -z "$ip" ] || [ "$ip" = "null" ]; then
+            # fallback: uzmi prvi Public IP u grupi
+            ip=$(az network public-ip list -g "$RG_NAME" --query "[0].ipAddress" -o tsv)
+          fi
+          if [ -z "$ip" ] || [ "$ip" = "null" ]; then
+            echo "Public IP not found in RG $RG_NAME" >&2
+            exit 1
+          fi
+          echo "public_ip=$ip" >> "$GITHUB_OUTPUT"
+
+      - name: Create inventory
+        run: echo "${{ steps.ip.outputs.public_ip }} ansible_user=${{ env.SSH_USER }} ansible_ssh_private_key_file=~/.ssh/id_rsa" > ansible/inventory.ini
+
+      - name: Run playbook
+        env:
+          KC_CLIENT_SECRET: ${{ secrets.KC_CLIENT_SECRET }}
+          COOKIE_SECRET: ${{ secrets.COOKIE_SECRET }}
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+        run: ansible-playbook -i ansible/inventory.ini ansible/site.yml -e public_ip=${{ steps.ip.outputs.public_ip }}
